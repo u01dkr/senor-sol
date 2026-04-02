@@ -217,7 +217,8 @@ export default function App() {
   const [screen, setScreen] = useState("start");
   const [msgs, setMsgs] = useState([]);
   const [history, setHistory] = useState([]);
-  const [input, setInput] = useState("");
+  const [spanishInput, setSpanishInput] = useState("");
+  const [englishInput, setEnglishInput] = useState("");
   const [helpMode, setHelpMode] = useState(false);
   const [busy, setBusy] = useState(false);
   const [activeTooltip, setActiveTooltip] = useState(null);
@@ -232,7 +233,7 @@ export default function App() {
     if(!ta) return;
     ta.style.height="auto";
     ta.style.height=Math.min(ta.scrollHeight,130)+"px";
-  },[input]);
+  },[spanishInput, englishInput]);
 
   useEffect(()=>{
     if(!activeTooltip) return;
@@ -243,9 +244,9 @@ export default function App() {
 
   const insertChar=(ch)=>{
     const ta=taRef.current;
-    if(!ta){setInput(p=>p+ch);return;}
+    if(!ta){setSpanishInput(p=>p+ch);return;}
     const s=ta.selectionStart,e=ta.selectionEnd;
-    setInput(input.slice(0,s)+ch+input.slice(e));
+    setSpanishInput(spanishInput.slice(0,s)+ch+spanishInput.slice(e));
     setTimeout(()=>{ta.selectionStart=ta.selectionEnd=s+1;ta.focus();},0);
   };
 
@@ -265,36 +266,33 @@ export default function App() {
     return data.content[0].text;
   };
 
-  const startChat = async () => {
+  const startChat = () => {
     setScreen("chat");
-    setBusy(true);
     setErr(null);
     try {
       const openers = [
-        "Hola! Vamos a empezar. Hazme una pregunta o cuéntame algo.",
-        "Hola! Cuéntame — ¿qué tal tu semana hasta ahora?",
-        "Hola! ¿Hay algo que quieras contarme hoy?",
-        "Hola! ¿Qué hiciste el fin de semana? Cuéntame algo interesante.",
-        "Hola! Si pudieras visitar cualquier país del mundo, ¿cuál elegirías?",
-        "Hola! ¿Cuál es tu película o serie favorita ahora mismo?",
-        "Hola! ¿Prefieres la música en español o en inglés? ¿Por qué?",
-        "Hola! ¿Qué es lo mejor que has comido últimamente?",
+        "¡Hola! Cuéntame — ¿qué tal tu semana hasta ahora?",
+        "¡Hola! ¿Qué hiciste el fin de semana? Cuéntame algo interesante.",
+        "¡Hola! Si pudieras visitar cualquier país del mundo, ¿cuál elegirías?",
+        "¡Hola! ¿Cuál es tu película o serie favorita ahora mismo?",
+        "¡Hola! ¿Prefieres la música en español o en inglés? ¿Por qué?",
+        "¡Hola! ¿Qué es lo mejor que has comido últimamente?",
+        "¡Hola! ¿Qué te gusta hacer cuando no estás en el cole?",
+        "¡Hola! ¿Has viajado a algún sitio interesante últimamente?",
       ];
       const opener = openers[Math.floor(Math.random() * openers.length)];
-      const opening = [{role:"user",content:opener}];
-      const raw = await callApi(opening);
-      setHistory([...opening,{role:"assistant",content:raw}]);
-      setMsgs([{_type:"assistant",text:raw}]);
+      setHistory([{role:"assistant",content:opener}]);
+      setMsgs([{_type:"assistant",text:opener}]);
     } catch(e){ setErr(e.message); }
-    setBusy(false);
     setTimeout(()=>taRef.current?.focus(),100);
   };
 
   const send = async () => {
-    if(!input.trim()||busy) return;
-    const userText = input.trim();
+    const currentInput = helpMode ? englishInput : spanishInput;
+    if(!currentInput.trim()||busy) return;
+    const userText = currentInput.trim();
     const apiContent = helpMode ? `[EN]: ${userText}` : userText;
-    setInput("");
+    if(helpMode) setEnglishInput(""); else setSpanishInput("");
     if(taRef.current) taRef.current.style.height="auto";
     setActiveTooltip(null);
     setErr(null);
@@ -366,11 +364,11 @@ export default function App() {
       <div style={{flexShrink:0,display:"flex",justifyContent:"center",padding:"7px 14px 13px",borderTop:"3px solid #000",background:"#1a0830"}}>
         <div style={{width:"100%",maxWidth:580}}>
           <div style={{display:"flex",gap:6,marginBottom:7}}>
-            <button onClick={()=>{setHelpMode(false);setInput("");}}
+            <button onClick={()=>setHelpMode(false)}
               style={{flex:1,padding:"5px 0",borderRadius:8,border:"2px solid",borderColor:!helpMode?"#FF5533":"rgba(255,255,255,0.1)",background:!helpMode?"rgba(255,85,51,0.18)":"transparent",color:!helpMode?"#FF8866":"rgba(255,255,255,0.3)",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>
               🇪🇸 Spanish
             </button>
-            <button onClick={()=>{setHelpMode(true);setInput("");}}
+            <button onClick={()=>setHelpMode(true)}
               style={{flex:1,padding:"5px 0",borderRadius:8,border:"2px solid",borderColor:helpMode?"#5599ff":"rgba(255,255,255,0.1)",background:helpMode?"rgba(85,153,255,0.18)":"transparent",color:helpMode?"#88aaff":"rgba(255,255,255,0.3)",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>
               🇬🇧 English help
             </button>
@@ -392,12 +390,12 @@ export default function App() {
           )}
 
           <div style={{display:"flex",gap:7,alignItems:"flex-end",background:helpMode?"rgba(85,153,255,0.08)":"rgba(255,255,255,0.055)",border:helpMode?"2px solid rgba(85,153,255,0.3)":"2px solid rgba(255,229,102,0.18)",borderRadius:14,padding:"7px 7px 7px 12px"}}>
-            <textarea ref={taRef} value={input} onChange={e=>setInput(e.target.value)} onKeyDown={onKey}
+            <textarea ref={taRef} value={helpMode?englishInput:spanishInput} onChange={e=>helpMode?setEnglishInput(e.target.value):setSpanishInput(e.target.value)} onKeyDown={onKey}
               placeholder={helpMode?"e.g. How do I say 'I had never seen anything like it'?":"Escribe en español..."}
               rows={1} spellCheck={helpMode} autoCorrect={helpMode?"on":"off"} autoComplete="off" autoCapitalize={helpMode?"on":"off"}
               style={{flex:1,background:"transparent",border:"none",color:"#fff",fontSize:15,lineHeight:1.6,caretColor:helpMode?"#88aaff":"#FFE566",minHeight:24,maxHeight:130,overflowY:"auto"}}/>
-            <button onClick={send} disabled={!input.trim()||busy}
-              style={{width:36,height:36,borderRadius:9,border:"2px solid #000",background:input.trim()&&!busy?(helpMode?"#5599ff":"#FF5533"):"rgba(255,255,255,0.08)",color:input.trim()&&!busy?"#fff":"rgba(255,255,255,0.2)",fontSize:17,cursor:input.trim()&&!busy?"pointer":"default",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:input.trim()&&!busy?"2px 2px 0 #000":"none"}}>→</button>
+            <button onClick={send} disabled={!(helpMode?englishInput:spanishInput).trim()||busy}
+              style={{width:36,height:36,borderRadius:9,border:"2px solid #000",background:(helpMode?englishInput:spanishInput).trim()&&!busy?(helpMode?"#5599ff":"#FF5533"):"rgba(255,255,255,0.08)",color:(helpMode?englishInput:spanishInput).trim()&&!busy?"#fff":"rgba(255,255,255,0.2)",fontSize:17,cursor:(helpMode?englishInput:spanishInput).trim()&&!busy?"pointer":"default",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:(helpMode?englishInput:spanishInput).trim()&&!busy?"2px 2px 0 #000":"none"}}>→</button>
           </div>
           <div style={{textAlign:"center",marginTop:4,fontSize:10,color:"rgba(255,255,255,0.16)"}}>
             {helpMode?"Autocorrect on · Enter to send":"Autocorrect off · Enter to send · Shift+Enter for new line"}
