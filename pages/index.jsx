@@ -1,12 +1,14 @@
 import { useState, useRef, useEffect } from "react";
-import Head from "next/head";
 
 const SYSTEM = `You are Senor Sol, a cool and friendly Spanish tutor for teenagers aged 12-15. You are like a knowledgeable older friend who speaks Spanish fluently. Warm and encouraging, never babyish.
+
+YOUR PERSONALITY AND LIFE:
+You have a real personality and can answer questions about yourself naturally. Make up consistent, believable answers. Some facts about you: you grew up in Seville but have lived in Edinburgh for 3 years and love it. Your favourite band is Vetusta Morla. You love spicy food, hate mushrooms, support Real Betis, enjoy hiking and old video games, have visited Scotland, Ireland, Japan and Morocco. You have a cat called Miga. If asked something you haven't been asked before, invent a consistent answer that fits your character.
 
 RULES:
 - Chat naturally in Spanish. Add English in brackets for hard words.
 - Keep replies short — 2-4 sentences like texting.
-- Topics: music, food, travel, films, games, daily life.
+- Topics: music, food, travel, films, games, daily life, or anything the student brings up.
 - Encourage full sentences if student gives one-word answers.
 - Occasionally introduce an interesting new word naturally.
 - Occasionally note an interesting verb form you used.
@@ -182,7 +184,7 @@ function StartScreen({ onStart }) {
           ¡EMPEZAR! →
         </button>
       </div>
-      <div style={{marginTop:16,fontSize:12,color:"rgba(255,255,255,0.25)",fontStyle:"italic"}}>Ages 12–15 · No signup needed</div>
+
     </div>
   );
 }
@@ -268,7 +270,18 @@ export default function App() {
     setBusy(true);
     setErr(null);
     try {
-      const opening = [{role:"user",content:"Hola! Vamos a empezar."}];
+      const openers = [
+        "Hola! Vamos a empezar. Hazme una pregunta o cuéntame algo.",
+        "Hola! Cuéntame — ¿qué tal tu semana hasta ahora?",
+        "Hola! ¿Hay algo que quieras contarme hoy?",
+        "Hola! ¿Qué hiciste el fin de semana? Cuéntame algo interesante.",
+        "Hola! Si pudieras visitar cualquier país del mundo, ¿cuál elegirías?",
+        "Hola! ¿Cuál es tu película o serie favorita ahora mismo?",
+        "Hola! ¿Prefieres la música en español o en inglés? ¿Por qué?",
+        "Hola! ¿Qué es lo mejor que has comido últimamente?",
+      ];
+      const opener = openers[Math.floor(Math.random() * openers.length)];
+      const opening = [{role:"user",content:opener}];
       const raw = await callApi(opening);
       setHistory([...opening,{role:"assistant",content:raw}]);
       setMsgs([{_type:"assistant",text:raw}]);
@@ -314,10 +327,7 @@ export default function App() {
 
   if(screen==="start") return (
     <div style={{height:"100vh",display:"flex",flexDirection:"column",background:"#0f0820",overflow:"hidden"}}>
-      <Head>
-        <link href="https://fonts.googleapis.com/css2?family=Bangers&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet"/>
-        <style>{`*{box-sizing:border-box;} @keyframes dot{0%,80%,100%{transform:translateY(0)}40%{transform:translateY(-5px)}}`}</style>
-      </Head>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Bangers&family=Nunito:wght@400;600;700;800&display=swap'); *{box-sizing:border-box;} @keyframes dot{0%,80%,100%{transform:translateY(0)}40%{transform:translateY(-5px)}}`}</style>
       <StartScreen onStart={startChat}/>
     </div>
   );
@@ -325,10 +335,7 @@ export default function App() {
   return (
     <div style={{height:"100vh",display:"flex",flexDirection:"column",background:"#0f0820",fontFamily:"'Nunito','Segoe UI',sans-serif",overflow:"hidden"}}
       onClick={()=>activeTooltip&&setActiveTooltip(null)}>
-      <Head>
-        <link href="https://fonts.googleapis.com/css2?family=Bangers&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet"/>
-        <style>{`::-webkit-scrollbar{width:3px} ::-webkit-scrollbar-thumb{background:rgba(255,229,102,0.25);border-radius:2px} textarea{resize:none;font-family:inherit;} textarea:focus{outline:none;} textarea::placeholder{color:rgba(255,255,255,0.3);} @keyframes dot{0%,80%,100%{transform:translateY(0)}40%{transform:translateY(-5px)}}`}</style>
-      </Head>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Bangers&family=Nunito:wght@400;600;700;800&display=swap'); *{box-sizing:border-box;} ::-webkit-scrollbar{width:3px} ::-webkit-scrollbar-thumb{background:rgba(255,229,102,0.25);border-radius:2px} textarea{resize:none;font-family:inherit;} textarea:focus{outline:none;} textarea::placeholder{color:rgba(255,255,255,0.3);} @keyframes dot{0%,80%,100%{transform:translateY(0)}40%{transform:translateY(-5px)}}`}</style>
 
       {/* Header */}
       <div style={{flexShrink:0,display:"flex",justifyContent:"center",padding:"10px 14px 8px",borderBottom:"3px solid #000",background:"#FFE566",boxShadow:"0 3px 0 #000"}}>
@@ -359,11 +366,11 @@ export default function App() {
       <div style={{flexShrink:0,display:"flex",justifyContent:"center",padding:"7px 14px 13px",borderTop:"3px solid #000",background:"#1a0830"}}>
         <div style={{width:"100%",maxWidth:580}}>
           <div style={{display:"flex",gap:6,marginBottom:7}}>
-            <button onClick={()=>setHelpMode(false)}
+            <button onClick={()=>{setHelpMode(false);setInput("");}}
               style={{flex:1,padding:"5px 0",borderRadius:8,border:"2px solid",borderColor:!helpMode?"#FF5533":"rgba(255,255,255,0.1)",background:!helpMode?"rgba(255,85,51,0.18)":"transparent",color:!helpMode?"#FF8866":"rgba(255,255,255,0.3)",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>
               🇪🇸 Spanish
             </button>
-            <button onClick={()=>setHelpMode(true)}
+            <button onClick={()=>{setHelpMode(true);setInput("");}}
               style={{flex:1,padding:"5px 0",borderRadius:8,border:"2px solid",borderColor:helpMode?"#5599ff":"rgba(255,255,255,0.1)",background:helpMode?"rgba(85,153,255,0.18)":"transparent",color:helpMode?"#88aaff":"rgba(255,255,255,0.3)",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>
               🇬🇧 English help
             </button>
