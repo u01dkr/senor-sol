@@ -135,10 +135,12 @@ After the CORRECTIONS line, write your normal reply in Irish.
 If no errors, just reply normally with no CORRECTIONS line.
 
 ENGLISH HELP MODE:
-If student writes in English starting with [EN]:, respond with:
-HELP:{"type":"translate","spanish":"...","notes":"word = meaning · word = meaning"}
-or HELP:{"type":"explain","answer":"Irish phrase","breakdown":"word = meaning · word = meaning"}
-Then nothing else.`,
+If student writes in English starting with [EN]:, they want help expressing something in Irish.
+For a translation request respond with exactly this format and nothing else:
+HELP:{"type":"translate","irish":"the Irish translation here","notes":"key word = meaning · key word = meaning"}
+For a question about how to say something respond with exactly this format and nothing else:
+HELP:{"type":"explain","answer":"the Irish phrase here","breakdown":"word = meaning · word = meaning"}
+The irish or answer field must always contain the actual Irish text, never leave it empty.`,
   },
 };
 
@@ -251,7 +253,7 @@ function HelpBubble({ item, teacher }) {
         <div style={{maxWidth:"78%",background:"#f0f0ff",border:"3px solid #000",borderRadius:16,borderBottomLeftRadius:3,padding:"10px 13px",boxShadow:"3px 3px 0 #000",color:"#1a0a2e",fontSize:15,lineHeight:1.6,wordBreak:"break-word"}}>
           {resp.type==="translate"&&<>
             <div style={{fontSize:10,fontWeight:800,color:"#7755aa",marginBottom:4,letterSpacing:.8,textTransform:"uppercase"}}>In {label}</div>
-            <div style={{fontSize:16,color:"#1a0a2e",fontWeight:800,marginBottom:6,fontFamily:"Bangers,sans-serif",letterSpacing:.5}}>"{resp.spanish}"</div>
+            <div style={{fontSize:16,color:"#1a0a2e",fontWeight:800,marginBottom:6,fontFamily:"Bangers,sans-serif",letterSpacing:.5}}>"{resp.spanish||resp.irish}"</div>
             <div style={{fontSize:12.5,color:"#555",fontStyle:"italic",lineHeight:1.5}}>{resp.notes}</div>
           </>}
           {resp.type==="explain"&&<>
