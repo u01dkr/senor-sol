@@ -358,16 +358,15 @@ function QuizView({ quiz, onBack, categoryColor }) {
 }
 
 // ── Tappable article text ─────────────────────────────────────────────────────
-function WordPopup({ popup, onClose }) {
+function WordPopup({ popup, onClose, onSave, savedWords }) {
   if (!popup) return null;
   const { word, def, rect } = popup;
-  // Position above the word if possible, otherwise below
-  const topPos = rect.top > 160 ? rect.top - 10 : rect.bottom + 10;
   const fromTop = rect.top > 160;
+  const isSaved = savedWords.some(w=>w.word.toLowerCase()===word.toLowerCase());
   return (
     <div onClick={e=>e.stopPropagation()} style={{
       position:"fixed",
-      top: fromTop ? "auto" : topPos,
+      top: fromTop ? "auto" : rect.bottom + 10,
       bottom: fromTop ? (window.innerHeight - rect.top + 10) : "auto",
       left:"50%", transform:"translateX(-50%)",
       background:"#1a0a2e", border:"3px solid #FFE566",
@@ -385,7 +384,10 @@ function WordPopup({ popup, onClose }) {
       {def ? (
         <>
           <div style={{fontSize:13.5,color:"#fff",lineHeight:1.5,marginBottom:6}}>{def.definition}</div>
-          <div style={{fontSize:12,color:"rgba(255,255,255,0.45)",fontStyle:"italic",lineHeight:1.5}}>"{def.example}"</div>
+          <div style={{fontSize:12,color:"rgba(255,255,255,0.45)",fontStyle:"italic",lineHeight:1.5,marginBottom:10}}>"{def.example}"</div>
+          <button onClick={()=>onSave(word,def)} disabled={isSaved} style={{width:"100%",background:isSaved?"rgba(26,217,160,0.15)":"#1ad9a0",border:"2px solid #000",borderRadius:8,padding:"6px 0",color:isSaved?"#1ad9a0":"#000",fontWeight:800,fontSize:13,cursor:isSaved?"default":"pointer",fontFamily:"inherit",boxShadow:isSaved?"none":"2px 2px 0 #000"}}>
+            {isSaved?"✓ Saved to Mi Vocabulario":"+ Save to Mi Vocabulario"}
+          </button>
         </>
       ) : (
         <div style={{fontSize:13,color:"rgba(255,229,102,0.6)"}}>Looking up...</div>
@@ -423,7 +425,7 @@ function TappableParagraph({ text, onWordTap, tappedWord }) {
   );
 }
 
-function StoryView({ story, onBack }) {
+function StoryView({ story, onBack, onSave, savedWords }) {
   const [speaking,setSpeaking]=useState(false);
   const [showEnglish,setShowEnglish]=useState(false);
   const [activeTab,setActiveTab]=useState("article");
@@ -502,7 +504,7 @@ function StoryView({ story, onBack }) {
                 <TappableParagraph text={para} onWordTap={handleWordTap} tappedWord={wordPopup?.word?.toLowerCase()}/>
               </div>
             ))}
-            <WordPopup popup={wordPopup} onClose={()=>setWordPopup(null)}/>
+            <WordPopup popup={wordPopup} onClose={()=>setWordPopup(null)} onSave={onSave} savedWords={savedWords}/>
           </div>
           <button onClick={()=>setShowEnglish(e=>!e)} style={{width:"100%",background:showEnglish?"rgba(255,255,255,0.08)":"transparent",border:"2px solid rgba(255,255,255,0.15)",borderRadius:10,padding:"8px 14px",color:"rgba(255,255,255,0.45)",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit",marginBottom:showEnglish?8:12}}>
             {showEnglish?"▲ Hide English translation":"▼ Show English translation"}
@@ -582,8 +584,161 @@ function StoryCard({ story, onOpen }) {
   );
 }
 
+// ── Mi Vocabulario ────────────────────────────────────────────────────────────
+function FlashCard({ item, direction }) {
+  const [flipped, setFlipped] = useState(false);
+  const front = direction==="es-en" ? item.word : item.definition;
+  const back  = direction==="es-en" ? item.definition : item.word;
+  const frontLabel = direction==="es-en" ? "ESPAÑOL" : "ENGLISH";
+  const backLabel  = direction==="es-en" ? "ENGLISH" : "ESPAÑOL";
+  return (
+    <div onClick={()=>setFlipped(f=>!f)} style={{background:flipped?"#FFE566":"rgba(255,255,255,0.06)",border:"2px solid "+(flipped?"#000":"rgba(255,255,255,0.12)"),borderRadius:14,padding:"12px 16px",cursor:"pointer",boxShadow:flipped?"3px 3px 0 #000":"none",transition:"all 0.18s",marginBottom:8}}>
+      <div style={{fontSize:10,fontWeight:800,color:flipped?"rgba(0,0,0,0.4)":"rgba(255,255,255,0.3)",letterSpacing:.8,marginBottom:4}}>{flipped?backLabel:frontLabel}</div>
+      <div style={{fontFamily:flipped&&direction==="en-es"?"Bangers,sans-serif":"Nunito,sans-serif",fontSize:flipped&&direction==="en-es"?22:16,fontWeight:flipped&&direction==="es-en"?400:800,color:flipped?"#1a0a2e":"#fff",lineHeight:1.4}}>{flipped?back:front}</div>
+      {flipped&&item.example&&<div style={{fontSize:12,color:"rgba(0,0,0,0.45)",fontStyle:"italic",marginTop:6,lineHeight:1.5}}>"{item.example}"</div>}
+      {!flipped&&<div style={{fontSize:11,color:"rgba(255,255,255,0.25)",marginTop:6}}>tap to reveal →</div>}
+    </div>
+  );
+}
+
+function VocabQuiz({ words, direction, onBack }) {
+  const pick10 = words.sort(()=>Math.random()-0.5).slice(0,Math.min(10,words.length));
+  const [current,setCurrent]=useState(0);
+  const [selected,setSelected]=useState(null);
+  const [answers,setAnswers]=useState([]);
+  const [done,setDone]=useState(false);
+
+  const q = pick10[current];
+  const correctAnswer = direction==="es-en" ? q.definition : q.word;
+  const wrongPool = words.filter(w=>w.word!==q.word);
+  const wrongs = wrongPool.sort(()=>Math.random()-0.5).slice(0,3).map(w=>direction==="es-en"?w.definition:w.word);
+  const options = [correctAnswer,...wrongs].sort(()=>Math.random()-0.5);
+  const correctIdx = options.indexOf(correctAnswer);
+  const prompt = direction==="es-en" ? q.word : q.definition;
+  const promptLabel = direction==="es-en" ? "What does this mean?" : "How do you say this in Spanish?";
+
+  const next=()=>{
+    const na=[...answers,selected];
+    setAnswers(na);
+    if(current<pick10.length-1){setCurrent(c=>c+1);setSelected(null);}
+    else setDone(true);
+  };
+
+  const score = answers.filter((a,i)=>a===options.indexOf(pick10[i]===q?correctAnswer:(direction==="es-en"?pick10[i].definition:pick10[i].word))).length;
+
+  if(done){
+    const realScore = answers.filter((a,i)=>{
+      const cw = pick10[i];
+      const ca = direction==="es-en" ? cw.definition : cw.word;
+      const wp = words.filter(w=>w.word!==cw.word).sort(()=>Math.random()-0.5).slice(0,3).map(w=>direction==="es-en"?w.definition:w.word);
+      const opts = [ca,...wp].sort(()=>Math.random()-0.5);
+      return a === opts.indexOf(ca);
+    }).length;
+    const pct = Math.round((answers.filter((_,i)=>true).length/pick10.length)*100);
+    return (
+      <div style={{flex:1,overflowY:"auto",padding:"14px 14px 24px"}}>
+        <button onClick={onBack} style={{background:"transparent",border:"2px solid rgba(255,255,255,0.2)",borderRadius:8,padding:"5px 12px",color:"rgba(255,255,255,0.5)",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit",marginBottom:16}}>← Mi Vocabulario</button>
+        <div style={{background:"#169B62",border:"3px solid #000",borderRadius:16,padding:"20px",textAlign:"center",boxShadow:"4px 4px 0 #000",marginBottom:16}}>
+          <div style={{fontSize:48,marginBottom:8}}>{answers.length===pick10.length?"🏆":"📚"}</div>
+          <div style={{fontFamily:"Bangers,sans-serif",fontSize:36,color:"#fff",letterSpacing:1}}>Quiz completado</div>
+          <div style={{fontSize:14,color:"rgba(255,255,255,0.8)",marginTop:4,fontWeight:700}}>{answers.length}/{pick10.length} preguntas completadas</div>
+        </div>
+        <button onClick={onBack} style={{width:"100%",background:"#FFE566",border:"3px solid #000",borderRadius:12,padding:"12px",color:"#1a0a2e",fontSize:16,fontWeight:800,cursor:"pointer",fontFamily:"Bangers,sans-serif",letterSpacing:1.5,boxShadow:"3px 3px 0 #000"}}>VOLVER →</button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{flex:1,overflowY:"auto",padding:"14px 14px 24px"}}>
+      <button onClick={onBack} style={{background:"transparent",border:"2px solid rgba(255,255,255,0.2)",borderRadius:8,padding:"5px 12px",color:"rgba(255,255,255,0.5)",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit",marginBottom:14}}>← Mi Vocabulario</button>
+      <div style={{marginBottom:14}}>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+          <span style={{fontSize:11,fontWeight:800,color:"rgba(255,255,255,0.4)",letterSpacing:.5}}>PREGUNTA {current+1} DE {pick10.length}</span>
+          <span style={{fontSize:11,fontWeight:800,color:"#1ad9a0"}}>{direction==="es-en"?"ES → EN":"EN → ES"}</span>
+        </div>
+        <div style={{height:6,background:"rgba(255,255,255,0.1)",borderRadius:3,overflow:"hidden"}}>
+          <div style={{height:"100%",background:"#1ad9a0",borderRadius:3,width:((current+1)/pick10.length*100)+"%",transition:"width 0.3s"}}/>
+        </div>
+      </div>
+      <div style={{fontSize:11,fontWeight:800,color:"rgba(255,255,255,0.35)",letterSpacing:.5,marginBottom:6}}>{promptLabel}</div>
+      <div style={{background:"#fff",border:"3px solid #000",borderRadius:14,padding:"16px",boxShadow:"3px 3px 0 #000",marginBottom:14}}>
+        <div style={{fontFamily:direction==="es-en"?"Bangers,sans-serif":"Nunito,sans-serif",fontSize:direction==="es-en"?28:18,fontWeight:800,color:"#1a0a2e",lineHeight:1.3}}>{prompt}</div>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:14}}>
+        {options.map((opt,i)=>{
+          let bg="rgba(255,255,255,0.06)",border="rgba(255,255,255,0.12)",color="#fff";
+          if(selected!==null){
+            if(i===correctIdx){bg="rgba(26,217,160,0.15)";border="#1ad9a0";color="#1ad9a0";}
+            else if(i===selected){bg="rgba(255,85,51,0.15)";border="#FF5533";color="#FF5533";}
+          } else if(i===selected){bg="rgba(255,229,102,0.12)";border="#FFE566";color="#FFE566";}
+          return (
+            <button key={i} onClick={()=>selected===null&&setSelected(i)} style={{background:bg,border:"2px solid "+border,borderRadius:11,padding:"10px 14px",color,fontSize:14,fontWeight:700,cursor:selected===null?"pointer":"default",fontFamily:"inherit",textAlign:"left",transition:"all 0.15s",lineHeight:1.4}}>
+              <span style={{fontFamily:"Bangers,sans-serif",fontSize:16,marginRight:8,opacity:.6}}>{["A","B","C","D"][i]}</span>{opt}
+            </button>
+          );
+        })}
+      </div>
+      {selected!==null&&(
+        <button onClick={next} style={{width:"100%",background:"#1ad9a0",border:"3px solid #000",borderRadius:12,padding:"12px",color:"#000",fontSize:16,fontWeight:800,cursor:"pointer",fontFamily:"Bangers,sans-serif",letterSpacing:1.5,boxShadow:"3px 3px 0 #000"}}>
+          {current<pick10.length-1?"SIGUIENTE →":"VER RESULTADOS →"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function MiVocabulario({ savedWords, onDelete, onBack }) {
+  const [direction,setDirection]=useState("es-en");
+  const [showQuiz,setShowQuiz]=useState(false);
+  const sorted=[...savedWords].sort((a,b)=>a.word.localeCompare(b.word));
+
+  if(showQuiz) return <VocabQuiz words={savedWords} direction={direction} onBack={()=>setShowQuiz(false)}/>;
+
+  return (
+    <div style={{flex:1,overflowY:"auto",padding:"14px 14px 24px"}}>
+      <button onClick={onBack} style={{background:"transparent",border:"2px solid rgba(255,255,255,0.2)",borderRadius:8,padding:"5px 12px",color:"rgba(255,255,255,0.5)",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit",marginBottom:14}}>← Home</button>
+
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+        <div style={{fontFamily:"Bangers,sans-serif",fontSize:28,color:"#FFE566",letterSpacing:1,flex:1}}>MI VOCABULARIO</div>
+        <span style={{background:"rgba(255,229,102,0.1)",border:"1px solid rgba(255,229,102,0.3)",borderRadius:20,padding:"3px 10px",fontSize:12,fontWeight:800,color:"#FFE566"}}>{savedWords.length} palabras</span>
+      </div>
+
+      {savedWords.length===0?(
+        <div style={{textAlign:"center",padding:"40px 20px"}}>
+          <div style={{fontSize:40,marginBottom:12}}>📖</div>
+          <div style={{fontFamily:"Bangers,sans-serif",fontSize:20,color:"rgba(255,255,255,0.4)",marginBottom:8}}>No hay palabras todavía</div>
+          <div style={{fontSize:13,color:"rgba(255,255,255,0.25)"}}>Tap any word in an article to look it up, then save it here.</div>
+        </div>
+      ):(
+        <>
+          {/* Direction toggle */}
+          <div style={{display:"flex",gap:4,marginBottom:14}}>
+            {[["es-en","🇪🇸 ES → EN"],["en-es","🇬🇧 EN → ES"]].map(([id,label])=>(
+              <button key={id} onClick={()=>setDirection(id)} style={{flex:1,padding:"7px 0",borderRadius:8,border:"2px solid",borderColor:direction===id?"#FFE566":"rgba(255,255,255,0.1)",background:direction===id?"rgba(255,229,102,0.12)":"transparent",color:direction===id?"#FFE566":"rgba(255,255,255,0.35)",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>{label}</button>
+            ))}
+          </div>
+
+          <div style={{fontSize:11,fontWeight:800,color:"rgba(255,255,255,0.3)",letterSpacing:.5,marginBottom:10}}>TAP A CARD TO FLIP · ALPHABETICAL ORDER</div>
+
+          {sorted.map((item,i)=><FlashCard key={i} item={item} direction={direction}/>)}
+
+          {/* Quiz button */}
+          {savedWords.length>=4&&(
+            <button onClick={()=>setShowQuiz(true)} style={{width:"100%",background:"#1ad9a0",border:"3px solid #000",borderRadius:14,padding:"13px 0",color:"#000",fontWeight:800,fontSize:18,cursor:"pointer",fontFamily:"Bangers,sans-serif",letterSpacing:2,boxShadow:"3px 3px 0 #000",marginTop:12}}>
+              🧠 QUIZ ME →
+            </button>
+          )}
+          {savedWords.length<4&&(
+            <div style={{textAlign:"center",fontSize:12,color:"rgba(255,255,255,0.25)",marginTop:12}}>Save at least 4 words to unlock the quiz</div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Home screen ───────────────────────────────────────────────────────────────
-function HomeScreen({ onChat, onNoticias }) {
+function HomeScreen({ onChat, onNoticias, onVocab, savedWords }) {
   return (
     <div style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"30px 20px",gap:24}}>
       <div style={{fontFamily:"Bangers,sans-serif",fontSize:18,color:"rgba(255,255,255,0.35)",letterSpacing:3,textAlign:"center"}}>¿QUÉ QUIERES HACER HOY?</div>
@@ -633,13 +788,35 @@ function HomeScreen({ onChat, onNoticias }) {
           LEER NOTICIAS →
         </button>
       </div>
+
+      {/* Mi Vocabulario card */}
+      <div style={{background:"#0a1f0a",border:"4px solid #1ad9a0",borderRadius:18,padding:"22px 24px 20px",width:"100%",maxWidth:340,boxShadow:"6px 6px 0 #1ad9a0",position:"relative"}}>
+        <div style={{position:"absolute",top:-20,right:-16,width:54,height:54,background:"#1ad9a0",border:"3px solid #000",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,boxShadow:"3px 3px 0 #000",transform:"rotate(6deg)"}}>📖</div>
+        <div style={{fontFamily:"Bangers,sans-serif",fontSize:32,lineHeight:1,color:"#1ad9a0",letterSpacing:1.5,marginBottom:2}}>MI VOCABULARIO</div>
+        <div style={{fontFamily:"Bangers,sans-serif",fontSize:16,color:"rgba(26,217,160,0.6)",letterSpacing:3,marginBottom:14}}>WORD BANK</div>
+        <div style={{background:"rgba(26,217,160,0.08)",border:"2px solid rgba(26,217,160,0.25)",borderRadius:12,padding:"8px 12px",marginBottom:16,fontSize:13,lineHeight:1.5,color:"rgba(255,255,255,0.65)",fontWeight:600}}>
+          Save words from articles. Flashcards and quizzes in both directions. ⚡
+        </div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:6,justifyContent:"center",marginBottom:18}}>
+          {["🃏 Flashcards","🧠 Quiz","🇪🇸→🇬🇧 ES/EN","🇬🇧→🇪🇸 EN/ES"].map(f=>(
+            <span key={f} style={{background:"rgba(26,217,160,0.12)",border:"2px solid rgba(26,217,160,0.3)",borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:800,color:"#1ad9a0",boxShadow:"2px 2px 0 rgba(0,0,0,0.3)"}}>{f}</span>
+          ))}
+        </div>
+        <button onClick={onVocab}
+          onMouseDown={e=>{e.currentTarget.style.transform="translate(2px,2px)";e.currentTarget.style.boxShadow="2px 2px 0 #1ad9a0";}}
+          onMouseUp={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow="4px 4px 0 #1ad9a0";}}
+          style={{background:"#1ad9a0",border:"4px solid #000",borderRadius:14,padding:"13px 0",width:"100%",color:"#000",fontWeight:800,fontSize:20,cursor:"pointer",fontFamily:"Bangers,sans-serif",letterSpacing:2,boxShadow:"4px 4px 0 #1ad9a0",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+          MI VOCABULARIO
+          {savedWords.length>0&&<span style={{background:"#000",color:"#1ad9a0",borderRadius:20,padding:"2px 8px",fontSize:14}}>{savedWords.length}</span>}
+        </button>
+      </div>
     </div>
   );
 }
 
 // ── Main app ──────────────────────────────────────────────────────────────────
 export default function App() {
-  const [screen, setScreen] = useState("home"); // home | chat | noticias
+  const [screen, setScreen] = useState("home"); // home | chat | noticias | vocab
   const [chatMsgs, setChatMsgs] = useState([]);
   const [chatHistory, setChatHistory] = useState([]);
   const [spanishInput, setSpanishInput] = useState("");
@@ -648,6 +825,25 @@ export default function App() {
   const [chatBusy, setChatBusy] = useState(false);
   const [activeTooltip, setActiveTooltip] = useState(null);
   const [chatErr, setChatErr] = useState(null);
+
+  // Word bank state
+  const [savedWords, setSavedWords] = useState(()=>{
+    try { return JSON.parse(localStorage.getItem("senorsol_vocab")||"[]"); } catch(e){ return []; }
+  });
+
+  const saveWord=(word,def)=>{
+    if(savedWords.some(w=>w.word.toLowerCase()===word.toLowerCase())) return;
+    const entry={word,definition:def.definition,partOfSpeech:def.partOfSpeech,example:def.example};
+    const updated=[...savedWords,entry];
+    setSavedWords(updated);
+    try{ localStorage.setItem("senorsol_vocab",JSON.stringify(updated)); }catch(e){}
+  };
+
+  const deleteWord=(word)=>{
+    const updated=savedWords.filter(w=>w.word!==word);
+    setSavedWords(updated);
+    try{ localStorage.setItem("senorsol_vocab",JSON.stringify(updated)); }catch(e){}
+  };
 
   // Noticias state
   const [articles, setArticles] = useState([]);
@@ -787,17 +983,17 @@ export default function App() {
           )}
           <div>
             <div style={{fontFamily:"Bangers,sans-serif",fontSize:screen==="home"?20:18,letterSpacing:1.5,color:screen==="noticias"?"#FFE566":"#1a0a2e",lineHeight:1}}>
-              {screen==="home"?"SEÑOR SOL":screen==="chat"?"SEÑOR SOL":"NOTICIAS"}
+              {screen==="home"?"SEÑOR SOL":screen==="chat"?"SEÑOR SOL":screen==="vocab"?"MI VOCABULARIO":"NOTICIAS"}
             </div>
             <div style={{fontSize:10,fontWeight:800,color:screen==="noticias"?"rgba(255,229,102,0.6)":"#FF5533",letterSpacing:.5}}>
-              {screen==="home"?"SPANISH LEARNING APP":screen==="chat"?"● EN LÍNEA":"NOTICIAS EN ESPAÑOL"}
+              {screen==="home"?"SPANISH LEARNING APP":screen==="chat"?"● EN LÍNEA":screen==="vocab"?"WORD BANK · FLASHCARDS · QUIZ":"NOTICIAS EN ESPAÑOL"}
             </div>
           </div>
         </div>
       </div>
 
       {/* ── HOME ── */}
-      {screen==="home"&&<HomeScreen onChat={startChat} onNoticias={loadNoticias}/>}
+      {screen==="home"&&<HomeScreen onChat={startChat} onNoticias={loadNoticias} onVocab={()=>setScreen("vocab")} savedWords={savedWords}/>}
 
       {/* ── CHAT ── */}
       {screen==="chat"&&<>
@@ -846,6 +1042,14 @@ export default function App() {
       </>}
 
       {/* ── NOTICIAS ── */}
+      {screen==="vocab"&&(
+        <div style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",alignItems:"center"}}>
+          <div style={{width:"100%",maxWidth:580,display:"flex",flexDirection:"column",flex:1}}>
+            <MiVocabulario savedWords={savedWords} onDelete={deleteWord} onBack={()=>setScreen("home")}/>
+          </div>
+        </div>
+      )}
+
       {screen==="noticias"&&(
         <div style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",alignItems:"center"}}>
           <div style={{width:"100%",maxWidth:580,display:"flex",flexDirection:"column",flex:1}}>
@@ -886,7 +1090,7 @@ export default function App() {
               </div>
             )}
             {!newsLoading&&openStory&&(
-              <StoryView story={openStory} onBack={()=>setOpenStory(null)}/>
+              <StoryView story={openStory} onBack={()=>setOpenStory(null)} onSave={saveWord} savedWords={savedWords}/>
             )}
           </div>
         </div>
