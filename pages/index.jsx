@@ -357,12 +357,101 @@ function QuizView({ quiz, onBack, categoryColor }) {
   );
 }
 
+// ── Tappable article text ─────────────────────────────────────────────────────
+function WordPopup({ popup, onClose }) {
+  if (!popup) return null;
+  const { word, def, rect } = popup;
+  // Position above the word if possible, otherwise below
+  const topPos = rect.top > 160 ? rect.top - 10 : rect.bottom + 10;
+  const fromTop = rect.top > 160;
+  return (
+    <div onClick={e=>e.stopPropagation()} style={{
+      position:"fixed",
+      top: fromTop ? "auto" : topPos,
+      bottom: fromTop ? (window.innerHeight - rect.top + 10) : "auto",
+      left:"50%", transform:"translateX(-50%)",
+      background:"#1a0a2e", border:"3px solid #FFE566",
+      borderRadius:14, padding:"12px 15px",
+      zIndex:300, boxShadow:"4px 4px 0 #000",
+      maxWidth:"min(300px,88vw)", width:"88vw"
+    }}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
+        <div>
+          <span style={{fontFamily:"Bangers,sans-serif",fontSize:22,color:"#FFE566",letterSpacing:.5}}>{word}</span>
+          {def&&<span style={{fontSize:11,color:"rgba(255,229,102,0.5)",marginLeft:8,fontStyle:"italic"}}>{def.partOfSpeech}</span>}
+        </div>
+        <button onClick={onClose} style={{background:"transparent",border:"none",color:"rgba(255,255,255,0.4)",fontSize:18,cursor:"pointer",lineHeight:1,padding:"0 0 0 8px"}}>×</button>
+      </div>
+      {def ? (
+        <>
+          <div style={{fontSize:13.5,color:"#fff",lineHeight:1.5,marginBottom:6}}>{def.definition}</div>
+          <div style={{fontSize:12,color:"rgba(255,255,255,0.45)",fontStyle:"italic",lineHeight:1.5}}>"{def.example}"</div>
+        </>
+      ) : (
+        <div style={{fontSize:13,color:"rgba(255,229,102,0.6)"}}>Looking up...</div>
+      )}
+    </div>
+  );
+}
+
+function TappableParagraph({ text, onWordTap, tappedWord }) {
+  // Split into words keeping punctuation attached
+  const tokens = text.split(/(\s+)/);
+  return (
+    <p style={{fontSize:15,lineHeight:1.85,color:"#1a0a2e",margin:0,fontFamily:"Nunito,sans-serif",wordBreak:"break-word"}}>
+      {tokens.map((token, i) => {
+        if (/^\s+$/.test(token)) return <span key={i}>{token}</span>;
+        // Strip punctuation to get the core word
+        const clean = token.replace(/[^a-záéíóúüñA-ZÁÉÍÓÚÜÑ]/g, "");
+        if (!clean || clean.length < 2) return <span key={i}>{token}</span>;
+        const isActive = tappedWord === clean.toLowerCase();
+        return (
+          <span key={i}
+            onClick={e=>{e.stopPropagation();onWordTap(clean, text, e);}}
+            style={{
+              cursor:"pointer",
+              background: isActive ? "rgba(255,229,102,0.25)" : "transparent",
+              borderRadius:3,
+              padding:"1px 0",
+              transition:"background 0.15s"
+            }}>
+            {token}
+          </span>
+        );
+      })}
+    </p>
+  );
+}
+
 function StoryView({ story, onBack }) {
   const [speaking,setSpeaking]=useState(false);
   const [showEnglish,setShowEnglish]=useState(false);
   const [activeTab,setActiveTab]=useState("article");
   const [showVerb,setShowVerb]=useState(false);
   const [showQuiz,setShowQuiz]=useState(false);
+  const [wordPopup,setWordPopup]=useState(null);
+  const defCache=useRef({});
+
+  const handleWordTap=async(word, sentence, e)=>{
+    const rect=e.target.getBoundingClientRect();
+    const lw=word.toLowerCase();
+    if(wordPopup?.word===word){setWordPopup(null);return;}
+    // Show loading popup immediately
+    setWordPopup({word,def:null,rect:{top:rect.top,bottom:rect.bottom,left:rect.left,right:rect.right}});
+    // Check cache
+    if(defCache.current[lw]){
+      setWordPopup({word,def:defCache.current[lw],rect:{top:rect.top,bottom:rect.bottom,left:rect.left,right:rect.right}});
+      return;
+    }
+    try {
+      const res=await fetch("/api/define",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({word,sentence})});
+      const def=await res.json();
+      defCache.current[lw]=def;
+      setWordPopup(prev=>prev?.word===word?{...prev,def}:prev);
+    } catch(err){
+      setWordPopup(prev=>prev?.word===word?{...prev,def:{partOfSpeech:"",definition:"Could not load definition.",example:""}}:prev);
+    }
+  };
 
   const speak=()=>{
     if(!window.speechSynthesis) return;
@@ -400,16 +489,20 @@ function StoryView({ story, onBack }) {
       <div style={{marginBottom:12}}><AudioBar speaking={speaking} onPlay={speak} onStop={stop}/></div>
       <div style={{display:"flex",gap:4,marginBottom:14}}>
         {[["article","📰 Artículo"],["vocab","📚 Vocabulario"]].map(([id,label])=>(
-          <button key={id} onClick={()=>setActiveTab(id)} style={{flex:1,padding:"7px 0",borderRadius:8,border:"2px solid",borderColor:activeTab===id?"#FFE566":"rgba(255,255,255,0.1)",background:activeTab===id?"rgba(255,229,102,0.12)":"transparent",color:activeTab===id?"#FFE566":"rgba(255,255,255,0.35)",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>{label}</button>
+          <button key={id} onClick={()=>{setActiveTab(id);setWordPopup(null);}} style={{flex:1,padding:"7px 0",borderRadius:8,border:"2px solid",borderColor:activeTab===id?"#FFE566":"rgba(255,255,255,0.1)",background:activeTab===id?"rgba(255,229,102,0.12)":"transparent",color:activeTab===id?"#FFE566":"rgba(255,255,255,0.35)",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>{label}</button>
         ))}
       </div>
 
       {activeTab==="article"&&(
         <div>
-          <div style={{background:"#fff",border:"3px solid #000",borderRadius:14,padding:"16px",boxShadow:"3px 3px 0 #000",marginBottom:12}}>
+          <div onClick={()=>setWordPopup(null)} style={{background:"#fff",border:"3px solid #000",borderRadius:14,padding:"16px",boxShadow:"3px 3px 0 #000",marginBottom:12,position:"relative"}}>
+            <div style={{fontSize:11,fontWeight:800,color:"rgba(0,0,0,0.25)",marginBottom:8,letterSpacing:.5}}>TAP ANY WORD FOR A DEFINITION</div>
             {story.body.split("\n\n").map((para,i)=>(
-              <p key={i} style={{fontSize:15,lineHeight:1.75,color:"#1a0a2e",margin:i===0?0:"12px 0 0",fontFamily:"Nunito,sans-serif"}}>{para}</p>
+              <div key={i} style={{marginTop:i===0?0:12}}>
+                <TappableParagraph text={para} onWordTap={handleWordTap} tappedWord={wordPopup?.word?.toLowerCase()}/>
+              </div>
             ))}
+            <WordPopup popup={wordPopup} onClose={()=>setWordPopup(null)}/>
           </div>
           <button onClick={()=>setShowEnglish(e=>!e)} style={{width:"100%",background:showEnglish?"rgba(255,255,255,0.08)":"transparent",border:"2px solid rgba(255,255,255,0.15)",borderRadius:10,padding:"8px 14px",color:"rgba(255,255,255,0.45)",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit",marginBottom:showEnglish?8:12}}>
             {showEnglish?"▲ Hide English translation":"▼ Show English translation"}
