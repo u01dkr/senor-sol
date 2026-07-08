@@ -42,6 +42,28 @@ const SPECIAL_CHARS = [
 
 const TENSE_KEYS = ["presente","indefinido","imperfecto","futuro"];
 
+function makeArticleChatSystem(headline, body) {
+  return `You are Senor Sol, a cool and friendly Spanish tutor for teenagers aged 12-15. You are discussing a Spanish news article with a student. Be warm, engaging and encouraging — like a knowledgeable older friend.
+
+THE ARTICLE THE STUDENT HAS JUST READ:
+Headline: ${headline}
+Content: ${body}
+
+YOUR ROLE IN THIS CHAT:
+- Ask engaging questions about the article to get the student writing in Spanish
+- Keep your own messages short — 1-3 sentences
+- Correct mistakes gently inline using this format on its own line:
+CORRECTIONS:{"corrections":[{"wrong":"original text","right":"corrected text","type":"inline","reason":"brief explanation"},{"wrong":"phrase","right":"phrase","type":"note","explanation":"fuller explanation","highlight":"exact phrase"}]}
+- After any CORRECTIONS line, continue your reply naturally in Spanish
+- If no errors, just reply normally with no CORRECTIONS line
+- Encourage the student to give longer, more detailed answers
+- Naturally use vocabulary from the article in your questions
+- Keep the conversation going with follow-up questions
+- If student writes in English starting with [EN]:, help them say it in Spanish:
+HELP:{"type":"translate","spanish":"translation here","notes":"word = meaning"}
+Then nothing else.`;
+}
+
 // ── Shared helpers ────────────────────────────────────────────────────────────
 function parseReply(raw) {
   if (raw.startsWith("HELP:")) {
@@ -425,6 +447,242 @@ function TappableParagraph({ text, onWordTap, tappedWord }) {
   );
 }
 
+// ── Article chat component ───────────────────────────────────────────────────
+function ArticleChat({ story, parseReply, onShowVerb }) {
+  const [msgs, setMsgs] = useState([]);
+  const [history, setHistory] = useState([]);
+  const [input, setInput] = useState("");
+  const [helpMode, setHelpMode] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [started, setStarted] = useState(false);
+  const [activeTooltip, setActiveTooltip] = useState(null);
+  const endRef = useRef(null);
+  const taRef = useRef(null);
+
+  useEffect(()=>{ endRef.current?.scrollIntoView({behavior:"smooth"}); },[msgs,busy]);
+
+  useEffect(()=>{
+    const ta=taRef.current; if(!ta) return;
+    ta.style.height="auto";
+    ta.style.height=Math.min(ta.scrollHeight,120)+"px";
+  },[input]);
+
+  useEffect(()=>{
+    if(!activeTooltip) return;
+    const h=()=>setActiveTooltip(null);
+    document.addEventListener("click",h);
+    return ()=>document.removeEventListener("click",h);
+  },[activeTooltip]);
+
+  const callApi = async(messages) => {
+    const system = makeArticleChatSystem(story.headline, story.body);
+    const res = await fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:600,system,messages})});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.error?.message||"API error");
+    return data.content[0].text;
+  };
+
+  const start = async() => {
+    setStarted(true); setBusy(true);
+    try {
+      const opening = [{role:"user",content:"Empecemos a hablar del artículo."}];
+      const raw = await callApi(opening);
+      setHistory([...opening,{role:"assistant",content:raw}]);
+      const parsed = parseReply(raw);
+      setMsgs([{_type:"tutor",text:parsed.replyText||raw}]);
+    } catch(e){ setMsgs([{_type:"tutor",text:"¡Hola! ¿Qué te pareció el artículo?"}]); }
+    setBusy(false);
+    setTimeout(()=>taRef.current?.focus(),100);
+  };
+
+  const send = async() => {
+    const text = (helpMode?input:input).trim();
+    if(!text||busy) return;
+    const apiContent = helpMode?"[EN]: "+text:text;
+    setInput("");
+    if(taRef.current) taRef.current.style.height="auto";
+    const newHistory=[...history,{role:"user",content:apiContent}];
+    setHistory(newHistory);
+    setMsgs(prev=>[...prev,{_type:"user",text,corrections:[]}]);
+    setBusy(true); setHelpMode(false);
+    try {
+      const raw = await callApi(newHistory);
+      const parsed = parseReply(raw);
+      setHistory(prev=>[...prev,{role:"assistant",content:raw}]);
+      if(parsed.type==="help"){
+        setMsgs(prev=>[...prev.slice(0,-1),{_type:"help",english:text,response:parsed.response}]);
+      } else {
+        if(parsed.corrections.length>0){
+          setMsgs(prev=>[...prev.slice(0,-1),{_type:"user",text,corrections:parsed.corrections}]);
+        }
+        setMsgs(prev=>[...prev,{_type:"tutor",text:parsed.replyText}]);
+      }
+    } catch(e){ setMsgs(prev=>[...prev,{_type:"tutor",text:"Lo siento, algo salió mal. ¡Inténtalo de nuevo!"}]); }
+    setBusy(false); taRef.current?.focus();
+  };
+
+  const onKey=(e)=>{ if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();} };
+
+  const insertChar=(ch)=>{
+    const ta=taRef.current;
+    if(!ta){setInput(p=>p+ch);return;}
+    const s=ta.selectionStart,e=ta.selectionEnd;
+    setInput(input.slice(0,s)+ch+input.slice(e));
+    setTimeout(()=>{ta.selectionStart=ta.selectionEnd=s+1;ta.focus();},0);
+  };
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:0}} onClick={()=>activeTooltip&&setActiveTooltip(null)}>
+      {/* Verb CTA */}
+      <div onClick={onShowVerb} style={{background:"linear-gradient(135deg,#FF5533,#FF8C5A)",border:"3px solid #000",borderRadius:14,padding:"12px 16px",marginBottom:14,cursor:"pointer",boxShadow:"3px 3px 0 #000",display:"flex",alignItems:"center",gap:12}}
+        onMouseDown={e=>{e.currentTarget.style.transform="translate(2px,2px)";e.currentTarget.style.boxShadow="1px 1px 0 #000";}}
+        onMouseUp={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow="3px 3px 0 #000";}}>
+        <div style={{fontSize:24}}>🔤</div>
+        <div>
+          <div style={{fontSize:10,fontWeight:800,color:"rgba(255,255,255,0.7)",letterSpacing:.8}}>VERBO DEL ARTÍCULO</div>
+          <div style={{fontFamily:"Bangers,sans-serif",fontSize:20,color:"#fff",letterSpacing:1,lineHeight:1}}>{story.verb?.infinitive}</div>
+          <div style={{fontSize:11,color:"rgba(255,255,255,0.7)"}}>{story.verb?.meaning} · 4 tenses</div>
+        </div>
+        <div style={{marginLeft:"auto",fontSize:18,color:"rgba(255,255,255,0.6)"}}>→</div>
+      </div>
+
+      {/* Chat section */}
+      <div style={{background:"rgba(255,255,255,0.04)",border:"2px solid rgba(255,229,102,0.15)",borderRadius:14,padding:"14px",marginBottom:12}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+          <div style={{width:30,height:30,borderRadius:"50%",background:"linear-gradient(135deg,#FF9500,#FFE566)",border:"2px solid #000",display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,flexShrink:0}}>☀️</div>
+          <div style={{fontSize:11,fontWeight:800,color:"rgba(255,229,102,0.7)",letterSpacing:.5}}>HABLA CON SEÑOR SOL SOBRE EL ARTÍCULO</div>
+        </div>
+
+        {!started?(
+          <div style={{textAlign:"center",padding:"10px 0 6px"}}>
+            <div style={{fontSize:13,color:"rgba(255,255,255,0.45)",marginBottom:12,lineHeight:1.5}}>Señor Sol te hará preguntas sobre el artículo. Responde en español — él corregirá tus errores y seguirá la conversación.</div>
+            <button onClick={start} style={{background:"#FFE566",border:"3px solid #000",borderRadius:12,padding:"10px 24px",color:"#1a0a2e",fontWeight:800,fontSize:16,cursor:"pointer",fontFamily:"Bangers,sans-serif",letterSpacing:1.5,boxShadow:"3px 3px 0 #000"}}>
+              ¡EMPEZAR! →
+            </button>
+          </div>
+        ):(
+          <div>
+            {/* Messages */}
+            <div style={{marginBottom:10,maxHeight:320,overflowY:"auto"}}>
+              {msgs.map((m,i)=>{
+                if(m._type==="tutor") return (
+                  <div key={i} style={{display:"flex",alignItems:"flex-end",gap:6,marginBottom:10}}>
+                    <div style={{width:28,height:28,borderRadius:"50%",background:"linear-gradient(135deg,#FF9500,#FFE566)",border:"2px solid #000",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0}}>☀️</div>
+                    <div style={{position:"relative",maxWidth:"80%",background:"#1ad9a0",border:"2px solid #000",borderRadius:14,borderBottomLeftRadius:3,padding:"8px 12px",color:"#000",fontSize:14,lineHeight:1.6,wordBreak:"break-word",whiteSpace:"pre-wrap",fontWeight:600,boxShadow:"2px 2px 0 #000"}}>
+                      {m.text}
+                    </div>
+                  </div>
+                );
+                if(m._type==="help") return (
+                  <div key={i} style={{marginBottom:10}}>
+                    <div style={{display:"flex",justifyContent:"flex-end",marginBottom:6}}>
+                      <div style={{maxWidth:"80%",background:"#5599ff",border:"2px solid #000",borderRadius:14,borderBottomRightRadius:3,padding:"8px 12px",color:"#fff",fontSize:14,lineHeight:1.5,boxShadow:"2px 2px 0 #000",fontWeight:600}}>
+                        <div style={{fontSize:9,color:"rgba(255,255,255,0.6)",fontWeight:700,marginBottom:2,textTransform:"uppercase"}}>english help</div>
+                        {m.english}
+                      </div>
+                    </div>
+                    <div style={{display:"flex",alignItems:"flex-end",gap:6}}>
+                      <div style={{width:28,height:28,borderRadius:"50%",background:"linear-gradient(135deg,#FF9500,#FFE566)",border:"2px solid #000",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0}}>☀️</div>
+                      <div style={{maxWidth:"80%",background:"#f0f0ff",border:"2px solid #000",borderRadius:14,borderBottomLeftRadius:3,padding:"8px 12px",color:"#1a0a2e",fontSize:14,lineHeight:1.5,boxShadow:"2px 2px 0 #000"}}>
+                        {m.response?.type==="translate"&&<><div style={{fontWeight:800,marginBottom:3}}>"{m.response.spanish}"</div><div style={{fontSize:11.5,color:"#555",fontStyle:"italic"}}>{m.response.notes}</div></>}
+                        {m.response?.type==="explain"&&<><div style={{fontWeight:800,marginBottom:3}}>{m.response.answer}</div><div style={{fontSize:11.5,color:"#555",fontStyle:"italic"}}>{m.response.breakdown}</div></>}
+                      </div>
+                    </div>
+                  </div>
+                );
+                // User bubble with corrections
+                const inlines=(m.corrections||[]).filter(c=>c.type==="inline");
+                const notes=(m.corrections||[]).filter(c=>c.type==="note");
+                const hlPhrases=notes.map(c=>c.highlight);
+                let segs=[{type:"text",value:m.text}];
+                inlines.forEach((c,ci)=>{
+                  segs=segs.flatMap(seg=>{
+                    if(seg.type!=="text") return [seg];
+                    const idx=seg.value.indexOf(c.wrong);
+                    if(idx===-1) return [seg];
+                    return [{type:"text",value:seg.value.slice(0,idx)},{type:"chip",c,id:i+"-"+ci},{type:"text",value:seg.value.slice(idx+c.wrong.length)}];
+                  });
+                });
+                return (
+                  <div key={i} style={{marginBottom:10,display:"flex",flexDirection:"column",alignItems:"flex-end"}}>
+                    <div style={{maxWidth:"80%",background:"#FF5533",border:"2px solid #000",borderRadius:14,borderBottomRightRadius:3,padding:"8px 12px",color:"#fff",fontSize:14,lineHeight:1.6,wordBreak:"break-word",boxShadow:"2px 2px 0 #000"}}>
+                      {segs.map((seg,si)=>{
+                        if(seg.type==="chip"){
+                          const open=activeTooltip===seg.id;
+                          return (
+                            <span key={si} onClick={e=>{e.stopPropagation();setActiveTooltip(open?null:seg.id);}} style={{cursor:"pointer"}}>
+                              <span style={{textDecoration:"line-through",color:"rgba(255,200,200,0.9)",fontSize:"0.92em"}}>{seg.c.wrong}</span>
+                              {" "}
+                              <span style={{background:"#FFE566",color:"#1a0a2e",borderRadius:4,padding:"1px 4px",fontWeight:800,fontSize:"0.92em"}}>{seg.c.right}</span>
+                              <SafeTooltip reason={seg.c.reason} open={open}/>
+                            </span>
+                          );
+                        }
+                        let val=seg.value;
+                        for(const hl of hlPhrases){
+                          if(val.includes(hl)){
+                            const parts=val.split(hl);
+                            return parts.map((p,pj)=><span key={si+"-"+pj}>{p}{pj<parts.length-1&&<span style={{borderBottom:"2px dotted #FFE566"}}>{hl}</span>}</span>);
+                          }
+                        }
+                        return <span key={si}>{val}</span>;
+                      })}
+                    </div>
+                    {notes.map((c,ni)=>(
+                      <div key={ni} style={{maxWidth:"84%",marginTop:4,background:"#FFE566",border:"2px solid #000",borderRadius:10,borderTopRightRadius:3,padding:"5px 10px",fontSize:12,color:"#1a0a2e",lineHeight:1.5,boxShadow:"2px 2px 0 #000",fontWeight:600}}>
+                        ✏️ {c.explanation}
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+              {busy&&(
+                <div style={{display:"flex",alignItems:"flex-end",gap:6,marginBottom:10}}>
+                  <div style={{width:28,height:28,borderRadius:"50%",background:"linear-gradient(135deg,#FF9500,#FFE566)",border:"2px solid #000",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0}}>☀️</div>
+                  <div style={{background:"#1ad9a0",border:"2px solid #000",borderRadius:14,borderBottomLeftRadius:3,padding:"8px 12px",boxShadow:"2px 2px 0 #000",display:"flex",gap:4,alignItems:"center"}}>
+                    {[0,1,2].map(i=><div key={i} style={{width:6,height:6,borderRadius:"50%",background:"#000",animation:"dot 1.2s "+(i*0.2)+"s ease-in-out infinite"}}/>)}
+                  </div>
+                </div>
+              )}
+              <div ref={endRef} style={{height:1}}/>
+            </div>
+
+            {/* Mode toggle */}
+            <div style={{display:"flex",gap:5,marginBottom:6}}>
+              <button onClick={()=>setHelpMode(false)} style={{flex:1,padding:"4px 0",borderRadius:7,border:"2px solid",borderColor:!helpMode?"#FF5533":"rgba(255,255,255,0.1)",background:!helpMode?"rgba(255,85,51,0.18)":"transparent",color:!helpMode?"#FF8866":"rgba(255,255,255,0.3)",fontSize:11,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>🇪🇸 Español</button>
+              <button onClick={()=>setHelpMode(true)} style={{flex:1,padding:"4px 0",borderRadius:7,border:"2px solid",borderColor:helpMode?"#5599ff":"rgba(255,255,255,0.1)",background:helpMode?"rgba(85,153,255,0.18)":"transparent",color:helpMode?"#88aaff":"rgba(255,255,255,0.3)",fontSize:11,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>🇬🇧 English help</button>
+            </div>
+
+            {/* Char bar */}
+            {!helpMode&&(
+              <div style={{marginBottom:6}}>
+                {[["á","é","í","ó","ú","ü","ñ","¿","¡"],["Á","É","Í","Ó","Ú","Ñ"]].map((row,ri)=>(
+                  <div key={ri} style={{display:"flex",gap:3,marginBottom:ri===0?3:0}}>
+                    {row.map(ch=>(
+                      <button key={ch} onClick={()=>insertChar(ch)} style={{flex:1,background:"rgba(255,229,102,0.08)",border:"1px solid rgba(255,229,102,0.15)",borderRadius:5,padding:"3px 0",color:"#FFE566",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",textAlign:"center"}}>{ch}</button>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Input */}
+            <div style={{display:"flex",gap:6,alignItems:"flex-end",background:helpMode?"rgba(85,153,255,0.08)":"rgba(255,255,255,0.06)",border:helpMode?"1px solid rgba(85,153,255,0.25)":"1px solid rgba(255,229,102,0.15)",borderRadius:12,padding:"6px 6px 6px 11px"}}>
+              <textarea ref={taRef} value={input} onChange={e=>setInput(e.target.value)} onKeyDown={onKey}
+                placeholder={helpMode?"Ask for help in English...":"Escribe tu respuesta en español..."}
+                rows={1} spellCheck={helpMode} autoCorrect={helpMode?"on":"off"} autoComplete="off" autoCapitalize={helpMode?"on":"off"}
+                style={{flex:1,background:"transparent",border:"none",color:"#fff",fontSize:14,lineHeight:1.6,caretColor:helpMode?"#88aaff":"#FFE566",minHeight:22,maxHeight:110,overflowY:"auto"}}/>
+              <button onClick={send} disabled={!input.trim()||busy}
+                style={{width:32,height:32,borderRadius:8,border:"2px solid #000",background:input.trim()&&!busy?(helpMode?"#5599ff":"#FF5533"):"rgba(255,255,255,0.08)",color:input.trim()&&!busy?"#fff":"rgba(255,255,255,0.2)",fontSize:15,cursor:input.trim()&&!busy?"pointer":"default",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:input.trim()&&!busy?"2px 2px 0 #000":"none"}}>→</button>
+            </div>
+            <div style={{textAlign:"center",marginTop:4,fontSize:10,color:"rgba(255,255,255,0.18)"}}>Enter to send · Shift+Enter for new line</div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function StoryView({ story, onBack, onSave, savedWords }) {
   const [speaking,setSpeaking]=useState(false);
   const [showEnglish,setShowEnglish]=useState(false);
@@ -490,7 +748,7 @@ function StoryView({ story, onBack, onSave, savedWords }) {
       <div style={{fontFamily:"Bangers,sans-serif",fontSize:26,letterSpacing:.5,color:"#fff",lineHeight:1.2,marginBottom:12}}>{story.headline}</div>
       <div style={{marginBottom:12}}><AudioBar speaking={speaking} onPlay={speak} onStop={stop}/></div>
       <div style={{display:"flex",gap:4,marginBottom:14}}>
-        {[["article","📰 Artículo"],["vocab","📚 Vocabulario"]].map(([id,label])=>(
+        {[["article","📰 Artículo"],["practicar","💬 Practicar"]].map(([id,label])=>(
           <button key={id} onClick={()=>{setActiveTab(id);setWordPopup(null);}} style={{flex:1,padding:"7px 0",borderRadius:8,border:"2px solid",borderColor:activeTab===id?"#FFE566":"rgba(255,255,255,0.1)",background:activeTab===id?"rgba(255,229,102,0.12)":"transparent",color:activeTab===id?"#FFE566":"rgba(255,255,255,0.35)",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>{label}</button>
         ))}
       </div>
@@ -530,24 +788,8 @@ function StoryView({ story, onBack, onSave, savedWords }) {
         </div>
       )}
 
-      {activeTab==="vocab"&&(
-        <div>
-          <div onClick={()=>setShowVerb(true)} style={{background:"linear-gradient(135deg,#FF5533,#FF8C5A)",border:"3px solid #000",borderRadius:14,padding:"12px 16px",marginBottom:14,cursor:"pointer",boxShadow:"3px 3px 0 #000",display:"flex",alignItems:"center",gap:12}}
-            onMouseDown={e=>{e.currentTarget.style.transform="translate(2px,2px)";e.currentTarget.style.boxShadow="1px 1px 0 #000";}}
-            onMouseUp={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow="3px 3px 0 #000";}}>
-            <div style={{fontSize:26}}>🔤</div>
-            <div>
-              <div style={{fontSize:11,fontWeight:800,color:"rgba(255,255,255,0.7)",letterSpacing:.8}}>VERBO DEL ARTÍCULO</div>
-              <div style={{fontFamily:"Bangers,sans-serif",fontSize:22,color:"#fff",letterSpacing:1,lineHeight:1}}>{story.verb?.infinitive}</div>
-              <div style={{fontSize:12,color:"rgba(255,255,255,0.7)"}}>{story.verb?.meaning} · 4 tenses</div>
-            </div>
-            <div style={{marginLeft:"auto",fontSize:20,color:"rgba(255,255,255,0.6)"}}>→</div>
-          </div>
-          <div style={{fontSize:11,fontWeight:800,color:"rgba(255,255,255,0.35)",letterSpacing:.5,marginBottom:8}}>VOCABULARIO CLAVE · TAP TO REVEAL</div>
-          <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            {(story.vocab||[]).map((item,i)=><VocabCard key={i} item={item}/>)}
-          </div>
-        </div>
+      {activeTab==="practicar"&&(
+        <ArticleChat story={story} parseReply={parseReply} onShowVerb={()=>setShowVerb(true)}/>
       )}
     </div>
   );
@@ -850,7 +1092,8 @@ export default function App() {
   const [newsLoading, setNewsLoading] = useState(false);
   const [newsErr, setNewsErr] = useState(null);
   const [openStory, setOpenStory] = useState(null);
-  const [translating, setTranslating] = useState(null); // article id being translated
+  const [translating, setTranslating] = useState(null);
+  const [difficulty, setDifficulty] = useState("normal"); // normal | easier
 
   const endRef = useRef(null);
   const taRef = useRef(null);
@@ -943,7 +1186,7 @@ export default function App() {
     if(article.translated){ setOpenStory(article); return; }
     setTranslating(article.id);
     try {
-      const res = await fetch("/api/translate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({title:article.title,description:article.description,content:article.content,source:article.source})});
+      const res = await fetch("/api/translate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({title:article.title,description:article.description,content:article.content,source:article.source,difficulty})});
       const data = await res.json();
       if(!res.ok) throw new Error(data.error||"Translation failed");
       const translated = {...article,...data,translated:true};
@@ -1053,6 +1296,13 @@ export default function App() {
       {screen==="noticias"&&(
         <div style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",alignItems:"center"}}>
           <div style={{width:"100%",maxWidth:580,display:"flex",flexDirection:"column",flex:1}}>
+            {!openStory&&!newsLoading&&(
+              <div style={{display:"flex",gap:6,padding:"10px 14px 4px"}}>
+                {[["normal","📰 Normal"],["easier","🌟 Más fácil"]].map(([id,label])=>(
+                  <button key={id} onClick={()=>setDifficulty(id)} style={{flex:1,padding:"6px 0",borderRadius:8,border:"2px solid",borderColor:difficulty===id?"#FFE566":"rgba(255,255,255,0.1)",background:difficulty===id?"rgba(255,229,102,0.12)":"transparent",color:difficulty===id?"#FFE566":"rgba(255,255,255,0.35)",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>{label}</button>
+                ))}
+              </div>
+            )}
             {newsLoading&&<NoticiasSpinner/>}
             {newsErr&&!newsLoading&&(
               <div style={{padding:24,textAlign:"center"}}>
