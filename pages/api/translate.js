@@ -3,10 +3,15 @@
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).end();
 
-  const { title, description, content, source } = req.body;
+  const { title, description, content, source, difficulty } = req.body;
   if (!title) return res.status(400).json({ error: "No article provided" });
 
-  const prompt = `You are a Spanish language educator. Take this news article and produce a complete Spanish learning package for an Irish secondary school student at B1-B2 level.
+  const easier = difficulty === "easier";
+  const levelDesc = easier
+    ? "A2-B1 level (Junior Cert). Use short sentences, common vocabulary, and keep the article to around 200-250 words across 3-4 short paragraphs. Add more English hints in brackets for harder words."
+    : "B1-B2 level (Leaving Cert). Use natural but accessible language, around 350-400 words across 5 paragraphs.";
+
+  const prompt = `You are a Spanish language educator. Take this news article and produce a complete Spanish learning package for an Irish secondary school student at ${levelDesc}
 
 ORIGINAL ARTICLE:
 Title: ${title}
@@ -19,7 +24,7 @@ Return ONLY valid JSON in exactly this structure, no other text:
   "intro": "one engaging sentence in Spanish summarising the story (max 25 words)",
   "body": "the full article rewritten in clear natural Spanish across 5 paragraphs, each separated by a blank line. Aim for 350-400 words. Use B1-B2 vocabulary — natural but accessible. Do NOT oversimplify.",
   "english": "faithful English translation of your Spanish body text, 5 paragraphs matching the Spanish",
-  "level": "B1 or B2",
+  "level": ""A2", "B1" or "B2" depending on difficulty — use A2 or B1 for easier mode",
   "category": "one of: DEPORTE, CIENCIA, TECNOLOGÍA, MUNDO, CULTURA, ECONOMÍA",
   "categoryColor": "one of: #FF5533, #7B5EA7, #169B62, #1a7abf, #c45c00, #2a7a2a",
   "vocab": [
